@@ -81,5 +81,6 @@ sub = pd.read_csv('../input/sample_submission.csv')
 for c in sub.columns[sub.columns != 'ParcelId']:
     sub[c] = p_test
 
+
 print('Writing csv ...')
 sub.to_csv('xgb_starter.csv', index=False, float_format='%.4f') # Thanks to @inversion

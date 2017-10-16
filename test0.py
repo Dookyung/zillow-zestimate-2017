@@ -150,4 +150,5 @@ sub['201711'] = p_test11
 sub['201612'] = p_test12
 sub['201712'] = p_test12
 
+#sub.drop(7, axis = 1, inplace = True)
 sub.to_csv(res_dir +  str(datetime.date.today()) +'_'+ 'xgb.csv', index=False, float_format='%.4f')
