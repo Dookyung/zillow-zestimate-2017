@@ -1,5 +1,5 @@
 name	experiment
-iterCount	630
+iterCount	4000
 learnErrorLog	learn_error.tsv
 testErrorLog	test_error.tsv
 timeLeft	time_left.tsv

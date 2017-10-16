@@ -23,9 +23,11 @@ from sklearn.ensemble import RandomForestRegressor, ExtraTreesRegressor, AdaBoos
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
 
+from sklearn.metrics import mean_absolute_error
 from catboost import CatBoostRegressor
 from sklearn.linear_model import Lasso
 from tqdm import tqdm
+import gc
 
 #
 # version 36 -> 6436
@@ -45,9 +47,12 @@ def load_data():
     train_2017 = pd.read_csv('../input/train_2017.csv')
     
     train = pd.concat([train_2016, train_2017], ignore_index=True)
-    properties = pd.read_csv('../input/properties_2017.csv')
+    properties_2016 = pd.read_csv('../input/properties_2017.csv')
+    properties_2017 = pd.read_csv('../input/properties_2017.csv')
+    properties = pd.concat([properties_2016, properties_2017], ignore_index=True)
     sample = pd.read_csv('../input/sample_submission.csv')
-    
+    del train_2016, train_2017, properties_2016, properties_2017
+    gc.collect();
     print("Preprocessing...")
     for c, dtype in zip(properties.columns, properties.dtypes):
         if dtype == np.float64:
@@ -160,7 +165,8 @@ def load_data():
     y_train = train["logerror"].values
     
     x_test = test[x_train.columns]
-    del test, train    
+    del test, train, properties
+    gc.collect();
     print(x_train.shape, y_train.shape, x_test.shape)
     
     return x_train, y_train, x_test
@@ -191,10 +197,14 @@ class Ensemble(object):
                 y_train = y[train_idx]
                 X_holdout = X[test_idx]
                 y_holdout = y[test_idx]
+#                y_mean = np.mean(y_train)
                 print ("Fit Model %d fold %d" % (i, j))
                 clf.fit(X_train, y_train)
                 y_pred = clf.predict(X_holdout)[:]                
-
+                
+                mae_baseline = mean_absolute_error(y_holdout, y_pred)
+                print("Current fold MAE is {:.8f}".format(mae_baseline))
+                
                 S_train[test_idx, i] = y_pred
                 S_test_i[:, j] = clf.predict(T)[:]
             S_test[:, i] = S_test_i.mean(axis=1)
@@ -202,14 +212,14 @@ class Ensemble(object):
         # results = cross_val_score(self.stacker, S_train, y, cv=5, scoring='r2')
         # print("Stacker score: %.4f (%.4f)" % (results.mean(), results.std()))
         # exit()
-
+        
         self.stacker.fit(S_train, y)
         res = self.stacker.predict(S_test)[:]
         return res
 
 # rf params
 rf_params = {}
-rf_params['n_estimators'] = 100
+rf_params['n_estimators'] = 500
 rf_params['max_depth'] = 8
 rf_params['max_features'] = 'sqrt'
 rf_params['min_samples_split'] = 100
@@ -217,37 +227,34 @@ rf_params['min_samples_leaf'] = 30
 
 # xgb params
 xgb_params = {}
-#xgb_params['n_estimators'] = 50
+xgb_params['n_estimators'] = 3000
 xgb_params['min_child_weight'] = 12
-xgb_params['learning_rate'] = 0.12
-xgb_params['max_depth'] = 6
+xgb_params['learning_rate'] = 0.03
+xgb_params['max_depth'] = 5
 xgb_params['subsample'] = 0.77
+
 xgb_params['reg_lambda'] = 0.8
 xgb_params['reg_alpha'] = 0.4
+y_mean = 0
 xgb_params['base_score'] = 0
 #xgb_params['seed'] = 400
 xgb_params['silent'] = 1
-xgb_params['tree_method'] = 'gpu_hist'
+#xgb_params['tree_method'] = 'hist'
+xgb_params['n_jobs'] = 8
 
-
-xgb_params2 = {}
-xgb_params2['eta'] = 0.01
-xgb_params2['objective'] = 'reg:linear'
-xgb_params2['eval_metric'] = 'mae'
-xgb_params2['max_depth'] = 4
 
 
 
 # lgb params
 lgb_params = {}
-lgb_params['n_estimators'] = 450
-lgb_params['max_bin'] = 8
+lgb_params['n_estimators'] = 1000
+lgb_params['max_bin'] = 63
 lgb_params['learning_rate'] = 0.037 # shrinkage_rate
 lgb_params['metric'] = 'l1'          # or 'mae'
 lgb_params['sub_feature'] = 0.35    
 lgb_params['bagging_fraction'] = 0.85 # sub_row
 lgb_params['bagging_freq'] = 40
-lgb_params['num_leaves'] = 512        # num_leaf
+lgb_params['num_leaves'] = 256        # num_leaf
 lgb_params['min_data'] = 500         # min_data_in_leaf
 lgb_params['min_hessian'] = 0.05     # min_sum_hessian_in_leaf
 lgb_params['verbose'] = 0
@@ -257,10 +264,10 @@ lgb_params['device'] = 'gpu'
 
 # catboost params
 cat_params= {}
-cat_params['iterations'] = 630
-cat_params['learning_rate'] = 0.03
+cat_params['iterations'] = 3000
+cat_params['learning_rate'] = 0.01
 cat_params['depth'] = 6
-cat_params['l2_leaf_reg'] = 3
+cat_params['l2_leaf_reg'] = 10
 cat_params['loss_function'] = 'MAE'
 cat_params['eval_metric'] = 'MAE'
 
@@ -290,9 +297,14 @@ dt_model = DecisionTreeRegressor()
 # AdaBoost model
 ada_model = AdaBoostRegressor()
 
+
+
+
+
+
 stack = Ensemble(n_splits=5,
         stacker=LinearRegression(),
-        base_models=(cat_model, rf_model, xgb_model, lgb_model, et_model, ada_model))
+        base_models=(xgb_model,lgb_model, cat_model, rf_model, et_model, ada_model))
 
 y_test = stack.fit_predict(x_train, y_train, x_test)
 
